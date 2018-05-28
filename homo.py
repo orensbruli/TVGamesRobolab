@@ -5,7 +5,7 @@ import sys
 
 import cv2
 import numpy as np
-from PyQt4.QtCore import QTimer
+from PyQt4.QtCore import QTimer, Qt
 from PyQt4.QtGui import QApplication, QWidget, QVBoxLayout, QPushButton, QPixmap, QLabel, QImage, QHBoxLayout
 
 import apriltag
@@ -353,23 +353,22 @@ class ControlWidget(QWidget):
         # self.capture.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
         # self.capture.set(cv2.CAP_PROP_FPS, 30)
         self.images_layout = QHBoxLayout()
-        self.camera_image = None
-        self.camera_pixmap = QPixmap()
-        self.camera_container = QLabel("Camera")
-        self.camera_container.setPixmap(self.camera_pixmap)
-        self.perspective_pixmap = QPixmap()
-        self.perspective_container = QLabel("Perspective")
-        self.perspective_container.setPixmap(self.perspective_pixmap)
-        self.images_layout.addWidget(self.camera_container)
-        self.images_layout.addWidget(self.perspective_container)
+        self.camera_widget = QImageWidget()
+        self.perspective_widget = QImageWidget()
+        self.game_image_widget = QImageWidget()
+        self.game_image_widget.show_on_second_screen()
+        self.images_layout.addWidget(self.camera_widget)
+        self.images_layout.addWidget(self.perspective_widget)
         self.main_layout.addLayout(self.images_layout)
 
         self.state = 0
         self.refPts = []
         self.origPts = []
         self.state = 0
-        self.W = width  # 424
-        self.H = height  # 238
+        # self.W = width  # 424
+        # self.H = height  # 238        self.W = width  # 424
+        self.W = self.game_image_widget.width() - 30  # 424
+        self.H = self.game_image_widget.height() - 30  # 238
         self.framesTag = 0
         self.positionTag = -1
         self.detector = apriltag.Detector()
@@ -394,7 +393,7 @@ class ControlWidget(QWidget):
         self.calibration_state = -1
         self.camera_ret = 0
         self.raw_camera_image = None
-        cv2.namedWindow("image")
+        # cv2.namedWindow("image")
 
         self.calibration_button.clicked.connect(self.init_calibration)
         self.camera_timer = QTimer()
@@ -414,7 +413,7 @@ class ControlWidget(QWidget):
         self.camera_ret, self.raw_camera_image = self.capture.read()
         if self.camera_ret:
             self.raw_camera_image = cv2.cvtColor(self.raw_camera_image, cv2.COLOR_BGR2RGB)
-            self.set_camera_image()
+            self.camera_widget.set_opencv_image(self.raw_camera_image)
 
     def composeImage(self, bigImage, small1, small2, small3, small4):
         # cv2.rectangle(bigImage, (0,0), (self.W/2, self.H/2), (255,0,0), -1)
@@ -425,22 +424,6 @@ class ControlWidget(QWidget):
         self.copyRoi(bigImage, small2, 0, self.W / 2)
         self.copyRoi(bigImage, small3, self.H / 2, 0)
         self.copyRoi(bigImage, small4, self.H / 2, self.W / 2)
-
-    def set_camera_image(self):
-
-        self.camera_image = QImage(self.raw_camera_image, self.raw_camera_image.shape[1], \
-                                   self.raw_camera_image.shape[0], self.raw_camera_image.shape[1] * 3,
-                                   QImage.Format_RGB888)
-        self.camera_pixmap = QPixmap(self.camera_image)
-        self.camera_container.setPixmap(self.camera_pixmap)
-
-    def set_perspective_image(self):
-        if self.perspective_image is not None:
-            self.perspective_image = QImage(self.perspective_image, self.perspective_image.shape[1], \
-                                            self.perspective_image.shape[0], self.perspective_image.shape[1] * 3,
-                                            QImage.Format_RGB888)
-            self.perspective_pixmap = QPixmap(self.perspective_image)
-            self.perspective_container.setPixmap(self.perspective_pixmap)
 
     def init_calibration(self):
         self.calibration_state = 0
@@ -495,6 +478,7 @@ class ControlWidget(QWidget):
                 self.refPts.append([detections[0].corners[2][0] + 2,
                                     detections[0].corners[2][1] + 2])
                 self.calibration_state = 4
+                self.refImage[:] = (255, 255, 255)
 
     def copyRoi(self, bigImage, small, row, col):
         # initial number of rows and columns
@@ -526,15 +510,17 @@ class ControlWidget(QWidget):
                 except:
                     print 'Can\'t save calibration'
                 self.composeImage(self.refImage, self.img1, self.img2, self.img3, self.img4)
+                self.refImage = cv2.cvtColor(self.refImage, cv2.COLOR_BGR2RGB)
                 self.state = 1
         elif self.state == 1:
             # print "\tState 1"
             self.perspective_image = cv2.warpPerspective(self.raw_camera_image, self.homography, (self.W, self.H))
-
-            gray = cv2.cvtColor(self.raw_camera_image, cv2.COLOR_BGR2GRAY)
+            img = self.contrast_image(self.raw_camera_image)
+            gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
             cv2.imshow("gray", gray)
             detections, dimg = self.detector.detect(gray, return_image=True)
             if len(detections) == 0:
+                print "no detection"
                 self.framesTag -= 1
                 if self.framesTag == -1: self.framesTag = 0
                 if self.framesTag < -20: self.framesTag = -20
@@ -585,7 +571,7 @@ class ControlWidget(QWidget):
                                 cv2.line(caca, ((self.W / 2) - 200, (self.H / 2) + 200),
                                          ((self.W / 2) + 200, (self.H / 2) - 200), (0, 0, 255), 10)
 
-                            cv2.imshow("image", caca)
+                                self.game_image_widget.set_opencv_image(caca)
                             k = cv2.waitKey(1000)
 
                             self.framesTag = -20
@@ -593,39 +579,88 @@ class ControlWidget(QWidget):
         else:
             print '\tWTF'
 
-        cv2.imshow("image", self.refImage)
-        self.set_perspective_image()
+        # cv2.imshow("image", self.refImage)
+
+        self.game_image_widget.set_opencv_image(self.refImage)
+        if self.perspective_image is not None and self.perspective_image.shape[1] > 1000:
+            self.perspective_image = cv2.resize(self.perspective_image, (0, 0), fx=0.5, fy=0.5)
+        self.perspective_widget.set_opencv_image(self.perspective_image)
+
         k = cv2.waitKey(1)
         if k == 27 or k == 1048603:
             sys.exit(-1)
 
-
-class QSMImageGame():
-    def __init__(self):
-        # self.game = ImageGame()
-        self.control_panel = ControlWidget()
-        self.control_panel.show()
-
-        # self.machine = QStateMachine()
-        # self.states = {"init": None, "calibration": None, "waiting": None, "win": None, "loose": None, "end": None}
-        # for state_name in self.states.keys():
-        #     self.states[state_name] = QState()
-        #     self.states[state_name].setObjectName(state_name)
-        #     self.machine.addState(self.states[state_name])
+    def contrast_image(self, img):
+        cv2.imshow("img", img)
+        img = cv2.multiply(img, np.array([5.0]))  # mul_img = img*alpha
+        img[np.where((img == [255, 255, 255]).all(axis=2))] = [0, 0, 0]
+        final = cv2.add(img, 90)
+        # # -----Converting image to LAB Color model-----------------------------------
+        # lab = cv2.cvtColor(img, cv2.COLOR_BGR2LAB)
+        # cv2.imshow("lab", lab)
         #
-        # self.machine.addTransition(self.control_panel.calibration_button, SIGNAL('clicked()'),
-        #                            self.states["calibration"])
-        # self.states["calibration"].entered.connect(self.game.calibrate)
-        # self.machine.setInitialState(self.states["calibration"])
-        # self.machine.start()
+        # # -----Splitting the LAB image to different channels-------------------------
+        # l, a, b = cv2.split(lab)
+        # cv2.imshow('l_channel', l)
+        # cv2.imshow('a_channel', a)
+        # cv2.imshow('b_channel', b)
+        #
+        # # -----Applying CLAHE to L-channel-------------------------------------------
+        # clahe = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8, 8))
+        # cl = clahe.apply(l)
+        # cv2.imshow('CLAHE output', cl)
+        #
+        # # -----Merge the CLAHE enhanced L-channel with the a and b channel-----------
+        # limg = cv2.merge((cl, a, b))
+        # cv2.imshow('limg', limg)
+        #
+        # # -----Converting image from LAB Color model to RGB model--------------------
+        # final = cv2.cvtColor(limg, cv2.COLOR_LAB2BGR)
+        cv2.imshow('final', final)
+        return final
+
+
+class QImageWidget(QWidget):
+    def __init__(self, parent=None):
+        super(QImageWidget, self).__init__(parent)
+        self.layout = QHBoxLayout(self)
+        self.label = QLabel()
+        self.layout.addWidget(self.label)
+        self.pixmap = QPixmap()
+        self.label.setPixmap(self.pixmap)
+        self.image = QImage()
+        self.setContentsMargins(0, 0, 0, 0)
+        self.layout.setContentsMargins(0, 0, 0, 0)
+        self.layout.setAlignment(Qt.AlignCenter)
+
+    def set_opencv_image(self, raw_image):
+        if raw_image is not None:
+            self.image = QImage(raw_image, raw_image.shape[1], \
+                                raw_image.shape[0], raw_image.shape[1] * 3,
+                                QImage.Format_RGB888)
+            self.pixmap = QPixmap(self.image)
+            self.label.setPixmap(self.pixmap)
+
+    def show_on_second_screen(self):
+        desktop_widget = QApplication.desktop()
+        if desktop_widget.screenCount() > 1:
+            second_screen_size = desktop_widget.screenGeometry(1)
+            self.move(second_screen_size.left(), second_screen_size.top())
+            self.resize(second_screen_size.width(), second_screen_size.height())
+            self.showMaximized()
+
 
 
 def main():
     app = QApplication([])
-    screen_resolution = app.desktop().screenGeometry()
-    width, height = screen_resolution.width(), screen_resolution.height()
-
-    the_game = QSMImageGame()
+    # desktop_widget = QApplication.desktop()
+    # print desktop_widget.screenCount()
+    # screen_resolution = app.desktop().screenGeometry()
+    # print screen_resolution
+    # width, height = screen_resolution.width(), screen_resolution.height()
+    #
+    control_panel = ControlWidget()
+    control_panel.show()
     sys.exit(app.exec_())
 
     # game = ImageGame()
