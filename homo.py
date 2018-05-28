@@ -133,7 +133,7 @@ class ImageGame():
         cv2.setWindowProperty("image", cv2.WND_PROP_FULLSCREEN, cv2.WINDOW_FULLSCREEN)
         while True:
             if self.calibration_state == 0:
-                self.copyRoi(self.refImage, april_0, 10, 10)
+                self.copyRoi(self.refImage, self.april_0, 10, 10)
                 ret, rgbImage = self.capture.read()
                 gray = cv2.cvtColor(rgbImage, cv2.COLOR_BGR2GRAY)
                 detections, dimg = self.detector.detect(gray, return_image=True)
@@ -146,7 +146,7 @@ class ImageGame():
                         self.refImage[:] = (255, 255, 255)
                         cv2.waitKey(1000)
             elif self.calibration_state == 1:
-                self.copyRoi(self.refImage, april_1, self.H - april_1.shape[0] - 10, 10)
+                self.copyRoi(self.refImage, self.april_1, self.H - self.april_1.shape[0] - 10, 10)
                 ret, rgbImage = self.capture.read()
                 gray = cv2.cvtColor(rgbImage, cv2.COLOR_BGR2GRAY)
                 detections, dimg = self.detector.detect(gray, return_image=True)
@@ -159,7 +159,7 @@ class ImageGame():
                         self.refImage[:] = (255, 255, 255)
                         cv2.waitKey(1000)
             elif self.calibration_state == 2:
-                self.copyRoi(self.refImage, april_2, 10, self.W - april_2.shape[1] - 10)
+                self.copyRoi(self.refImage, self.april_2, 10, self.W - self.april_2.shape[1] - 10)
                 ret, rgbImage = self.capture.read()
                 gray = cv2.cvtColor(rgbImage, cv2.COLOR_BGR2GRAY)
                 detections, dimg = self.detector.detect(gray, return_image=True)
@@ -172,8 +172,8 @@ class ImageGame():
                         self.refImage[:] = (255, 255, 255)
                         cv2.waitKey(1000)
             elif self.calibration_state == 3:
-                self.copyRoi(self.refImage, april_3, self.H - april_3.shape[0] - 10,
-                             self.W - april_3.shape[1] - 10)
+                self.copyRoi(self.refImage, self.april_3, self.H - self.april_3.shape[0] - 10,
+                             self.W - self.april_3.shape[1] - 10)
                 ret, rgbImage = self.capture.read()
                 gray = cv2.cvtColor(rgbImage, cv2.COLOR_BGR2GRAY)
                 detections, dimg = self.detector.detect(gray, return_image=True)
@@ -347,12 +347,11 @@ class ControlWidget(QWidget):
         super(ControlWidget, self).__init__(parent)
         self.main_layout = QVBoxLayout(self)
         self.calibration_button = QPushButton("Calibrate")
-        self.calibration_button.clicked.connect(self.calibrate)
         self.main_layout.addWidget(self.calibration_button)
         self.capture = cv2.VideoCapture(0)
-        self.capture.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
-        self.capture.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
-        self.capture.set(cv2.CAP_PROP_FPS, 30)
+        # self.capture.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
+        # self.capture.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+        # self.capture.set(cv2.CAP_PROP_FPS, 30)
         self.images_layout = QHBoxLayout()
         self.camera_image = None
         self.camera_pixmap = QPixmap()
@@ -379,13 +378,25 @@ class ControlWidget(QWidget):
         self.img2 = cv2.imread('resources/2.jpg')
         self.img3 = cv2.imread('resources/3.jpg')
         self.img4 = cv2.imread('resources/4.jpg')
+
+        self.april_0 = cv2.imread('resources/april_0.png')
+        self.april_0 = cv2.resize(self.april_0, None, fx=0.2, fy=0.2, interpolation=cv2.INTER_CUBIC)
+        self.april_1 = cv2.imread('resources/april_1.png')
+        self.april_1 = cv2.resize(self.april_1, None, fx=0.2, fy=0.2, interpolation=cv2.INTER_CUBIC)
+        self.april_2 = cv2.imread('resources/april_2.png')
+        self.april_2 = cv2.resize(self.april_2, None, fx=0.2, fy=0.2, interpolation=cv2.INTER_CUBIC)
+        self.april_3 = cv2.imread('resources/april_3.png')
+        self.april_3 = cv2.resize(self.april_3, None, fx=0.2, fy=0.2, interpolation=cv2.INTER_CUBIC)
         self.refImage = np.array(np.zeros((self.H, self.W, 3)), dtype=np.uint8)
         self.refImage[:] = (255, 255, 255)
-        self.calibration_state = 0
+        self.perspective_image = None
+        self.homography = None
+        self.calibration_state = -1
         self.camera_ret = 0
         self.raw_camera_image = None
         cv2.namedWindow("image")
 
+        self.calibration_button.clicked.connect(self.init_calibration)
         self.camera_timer = QTimer()
         self.camera_timer.timeout.connect(self.grab_video)
         self.camera_timer.start(1000 / 24)
@@ -393,75 +404,97 @@ class ControlWidget(QWidget):
         self.processing_timer.timeout.connect(self.game_loop)
         self.processing_timer.start(1000 / 24)
 
+    def toHomogeneous(self, p):
+        ret = np.resize(p, (p.shape[0] + 1, 1))
+        ret[-1][0] = 1.
+        return ret
+
     def grab_video(self):
+        # print "grab video"
         self.camera_ret, self.raw_camera_image = self.capture.read()
         if self.camera_ret:
             self.raw_camera_image = cv2.cvtColor(self.raw_camera_image, cv2.COLOR_BGR2RGB)
-            self.camera_image = QImage(self.raw_camera_image, self.raw_camera_image.shape[1], \
-                                       self.raw_camera_image.shape[0], self.raw_camera_image.shape[1] * 3,
-                                       QImage.Format_RGB888)
-            self.camera_pixmap = QPixmap(self.camera_image)
-            self.camera_container.setPixmap(self.camera_pixmap)
+            self.set_camera_image()
+
+    def composeImage(self, bigImage, small1, small2, small3, small4):
+        # cv2.rectangle(bigImage, (0,0), (self.W/2, self.H/2), (255,0,0), -1)
+        # cv2.rectangle(bigImage, (self.W/2,0), (self.W, self.H/2), (0,255,0), -1)
+        # cv2.rectangle(bigImage, (self.W/2, self.H/2), (self.W, self.H), (0,0,255), -1)
+        # cv2.rectangle(bigImage, (0,self.H/2), (self.W/2, self.H), (255,0,255), -1)
+        self.copyRoi(bigImage, small1, 0, 0)
+        self.copyRoi(bigImage, small2, 0, self.W / 2)
+        self.copyRoi(bigImage, small3, self.H / 2, 0)
+        self.copyRoi(bigImage, small4, self.H / 2, self.W / 2)
+
+    def set_camera_image(self):
+
+        self.camera_image = QImage(self.raw_camera_image, self.raw_camera_image.shape[1], \
+                                   self.raw_camera_image.shape[0], self.raw_camera_image.shape[1] * 3,
+                                   QImage.Format_RGB888)
+        self.camera_pixmap = QPixmap(self.camera_image)
+        self.camera_container.setPixmap(self.camera_pixmap)
+
+    def set_perspective_image(self):
+        if self.perspective_image is not None:
+            self.perspective_image = QImage(self.perspective_image, self.perspective_image.shape[1], \
+                                            self.perspective_image.shape[0], self.perspective_image.shape[1] * 3,
+                                            QImage.Format_RGB888)
+            self.perspective_pixmap = QPixmap(self.perspective_image)
+            self.perspective_container.setPixmap(self.perspective_pixmap)
+
+    def init_calibration(self):
+        self.calibration_state = 0
 
     def calibrate(self):
-        if self.calibration_state > 4 or self.calibration_state < 0:
+        # print "Calibrate"
+        if self.calibration_state > 4 or self.calibration_state < 0 or self.raw_camera_image is None:
             return
-        self.refImage[:] = (255, 255, 255)
-        april_0 = cv2.imread('resources/april_0.png')
-        april_0 = cv2.resize(april_0, None, fx=0.2, fy=0.2, interpolation=cv2.INTER_CUBIC)
-        april_1 = cv2.imread('resources/april_1.png')
-        april_1 = cv2.resize(april_1, None, fx=0.2, fy=0.2, interpolation=cv2.INTER_CUBIC)
-        april_2 = cv2.imread('resources/april_2.png')
-        april_2 = cv2.resize(april_2, None, fx=0.2, fy=0.2, interpolation=cv2.INTER_CUBIC)
-        april_3 = cv2.imread('resources/april_3.png')
-        april_3 = cv2.resize(april_3, None, fx=0.2, fy=0.2, interpolation=cv2.INTER_CUBIC)
-        cv2.setWindowProperty("image", cv2.WND_PROP_FULLSCREEN, cv2.WINDOW_FULLSCREEN)
-        while True:
-            gray = cv2.cvtColor(self.raw_camera_image, cv2.COLOR_BGR2GRAY)
-            if self.calibration_state == 0:
-                self.copyRoi(self.refImage, april_0, 10, 10)
 
-            elif self.calibration_state == 1:
-                self.copyRoi(self.refImage, april_1, self.H - april_1.shape[0] - 10, 10)
+        gray = cv2.cvtColor(self.raw_camera_image, cv2.COLOR_BGR2GRAY)
+        if self.calibration_state == 0:
+            print "Calibration state 0"
+            self.copyRoi(self.refImage, self.april_0, 10, 10)
 
-            elif self.calibration_state == 2:
-                self.copyRoi(self.refImage, april_2, 10, self.W - april_2.shape[1] - 10)
+        elif self.calibration_state == 1:
+            print "Calibration state 1"
+            self.copyRoi(self.refImage, self.april_1, self.H - self.april_1.shape[0] - 10, 10)
 
-            elif self.calibration_state == 3:
-                self.copyRoi(self.refImage, april_3, self.H - april_3.shape[0] - 10,
-                             self.W - april_3.shape[1] - 10)
-            detections, dimg = self.detector.detect(gray, return_image=True)
-            if len(detections) == 1:
-                if detections[0].tag_id == 0:
-                    self.origPts.append([5, 5])
-                    self.refPts.append([detections[0].corners[0][0] - 2,
-                                        detections[0].corners[0][1] - 2])
-                    self.calibration_state = 1
-                    self.refImage[:] = (255, 255, 255)
-                    cv2.waitKey(1000)
-                elif detections[0].tag_id == 1:
-                    self.origPts.append([5, self.H])
-                    self.refPts.append([detections[0].corners[3][0] - 2,
-                                        detections[0].corners[3][1] + 2])
-                    self.calibration_state = 2
-                    self.refImage[:] = (255, 255, 255)
-                    cv2.waitKey(1000)
-                elif detections[0].tag_id == 2:
-                    self.origPts.append([self.W, 5])
-                    self.refPts.append([detections[0].corners[1][0] + 2,
-                                        detections[0].corners[1][1] - 2])
-                    self.calibration_state = 3
-                    self.refImage[:] = (255, 255, 255)
-                    cv2.waitKey(1000)
-                elif detections[0].tag_id == 3:
-                    self.origPts.append([self.W, self.H])
-                    self.refPts.append([detections[0].corners[2][0] + 2,
-                                        detections[0].corners[2][1] + 2])
-                    self.calibration_state = 4
-                    break
-            cv2.imshow("image", self.refImage)
-            k = cv2.waitKey(1)
-        print "Calibration ended"
+        elif self.calibration_state == 2:
+            print "Calibration state 2"
+            self.copyRoi(self.refImage, self.april_2, 10, self.W - self.april_2.shape[1] - 10)
+
+        elif self.calibration_state == 3:
+            print "Calibration state 3"
+            self.copyRoi(self.refImage, self.april_3, self.H - self.april_3.shape[0] - 10,
+                         self.W - self.april_3.shape[1] - 10)
+        detections, dimg = self.detector.detect(gray, return_image=True)
+        if len(detections) == 1:
+            if detections[0].tag_id == 0 and len(self.refPts) == 0:
+                self.origPts.append([5, 5])
+                self.refPts.append([detections[0].corners[0][0] - 2,
+                                    detections[0].corners[0][1] - 2])
+                self.calibration_state = 1
+                self.refImage[:] = (255, 255, 255)
+                cv2.waitKey(1000)
+            elif detections[0].tag_id == 1 and len(self.refPts) == 1:
+                self.origPts.append([5, self.H])
+                self.refPts.append([detections[0].corners[3][0] - 2,
+                                    detections[0].corners[3][1] + 2])
+                self.calibration_state = 2
+                self.refImage[:] = (255, 255, 255)
+                cv2.waitKey(1000)
+            elif detections[0].tag_id == 2 and len(self.refPts) == 2:
+                self.origPts.append([self.W, 5])
+                self.refPts.append([detections[0].corners[1][0] + 2,
+                                    detections[0].corners[1][1] - 2])
+                self.calibration_state = 3
+                self.refImage[:] = (255, 255, 255)
+                cv2.waitKey(1000)
+            elif detections[0].tag_id == 3 and len(self.refPts) == 3:
+                self.origPts.append([self.W, self.H])
+                self.refPts.append([detections[0].corners[2][0] + 2,
+                                    detections[0].corners[2][1] + 2])
+                self.calibration_state = 4
 
     def copyRoi(self, bigImage, small, row, col):
         # initial number of rows and columns
@@ -471,39 +504,35 @@ class ControlWidget(QWidget):
         row2 = row + rows
         col2 = col + cols
 
-        ## set rows
-        # if row2 >= bigImage.shape[0]:
-        # row2 = bigImage.shape[0]-1
-        # rows = bigImage.shape[0]-1-row
-        ## set col
-        # if col2 >= bigImage.shape[1]:
-        # col2 = bigImage.shape[1]-1
-        # cols = bigImage.shape[1]-1-col
-
-        # cv2.imwrite("caca.png", small[:rows, :cols, :])
-        print 'big'
-        print bigImage[row][col][0]
-        print 'small'
-        print small[0][0][0]
-        print 'big'
-        print bigImage[row][col][0]
+        # print 'big'
+        # print bigImage[row][col][0]
+        # print 'small'
+        # print small[0][0][0]
+        # print 'big'
+        # print bigImage[row][col][0]
 
         bigImage[row:row + rows, col:col + cols, :] = small[:rows, :cols, :]
 
     def game_loop(self):
+        # print "game loop"
         if self.state == 0:
-            if len(self.refPts) == 4:
-                h, _ = cv2.findHomography(np.array(self.refPts), np.array(self.origPts))
+            # print "\tState 0"
+            self.calibrate()
+            if len(self.refPts) == 4 and self.calibration_state == 4:
+                self.homography, _ = cv2.findHomography(np.array(self.refPts), np.array(self.origPts))
                 try:
                     print 'Saving calibration'
-                    pickle.dump(h, open('h.pickles', 'w'))
-                    self.composeImage(self.refImage, self.img1, self.img2, self.img3, self.img4)
+                    pickle.dump(self.homography, open('h.pickles', 'w'))
                 except:
                     print 'Can\'t save calibration'
+                self.composeImage(self.refImage, self.img1, self.img2, self.img3, self.img4)
                 self.state = 1
         elif self.state == 1:
-            perspective_image = cv2.warpPerspective(self.raw_camera_image, h, (self.W, self.H))
+            # print "\tState 1"
+            self.perspective_image = cv2.warpPerspective(self.raw_camera_image, self.homography, (self.W, self.H))
+
             gray = cv2.cvtColor(self.raw_camera_image, cv2.COLOR_BGR2GRAY)
+            cv2.imshow("gray", gray)
             detections, dimg = self.detector.detect(gray, return_image=True)
             if len(detections) == 0:
                 self.framesTag -= 1
@@ -513,7 +542,7 @@ class ControlWidget(QWidget):
                 if detections[0].tag_id == 31:
                     for detection in detections:
                         p = self.toHomogeneous(detection.center)
-                        p = np.dot(h, p)
+                        p = np.dot(self.homography, p)
                         print p
                         if p[0] < self.W / 2:
                             if p[1] < self.H / 2:
@@ -562,13 +591,10 @@ class ControlWidget(QWidget):
                             self.framesTag = -20
                         print self.positionTag, self.framesTag
         else:
-            print 'WTF'
+            print '\tWTF'
 
         cv2.imshow("image", self.refImage)
-        try:
-            cv2.imshow("perspective", perspective_image)
-        except:
-            pass
+        self.set_perspective_image()
         k = cv2.waitKey(1)
         if k == 27 or k == 1048603:
             sys.exit(-1)
