@@ -9,6 +9,7 @@ from PyQt4.QtCore import QTimer, Qt
 from PyQt4.QtGui import QApplication, QWidget, QVBoxLayout, QPushButton, QPixmap, QLabel, QImage, QHBoxLayout
 
 import apriltag
+from OpencvCameraTestWidget import OpencvCameraTestWidget
 
 
 class ImageGame():
@@ -349,6 +350,11 @@ class ControlWidget(QWidget):
         self.calibration_button = QPushButton("Calibrate")
         self.main_layout.addWidget(self.calibration_button)
         self.capture = cv2.VideoCapture(0)
+        self.capture.set(cv2.CAP_PROP_FRAME_HEIGHT, 960)
+        self.capture.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)
+        # self.capture.set(cv2.CAP_PROP_AUTO_EXPOSURE, 1)
+        # self.capture.set(cv2.CAP_PROP_BRIGHTNESS, 0.7)
+        # self.capture.set(cv2.CAP_PROP_CONTRAST, 0.4)
         # self.capture.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
         # self.capture.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
         # self.capture.set(cv2.CAP_PROP_FPS, 30)
@@ -361,14 +367,17 @@ class ControlWidget(QWidget):
         self.images_layout.addWidget(self.perspective_widget)
         self.main_layout.addLayout(self.images_layout)
 
+        self.camera_parameters_control = OpencvCameraTestWidget(None, self.capture, self.camera_widget)
+        self.camera_parameters_control.show()
+
         self.state = 0
         self.refPts = []
         self.origPts = []
         self.state = 0
         # self.W = width  # 424
         # self.H = height  # 238        self.W = width  # 424
-        self.W = self.game_image_widget.width() - 30  # 424
-        self.H = self.game_image_widget.height() - 30  # 238
+        self.W = self.game_image_widget.width() - 50  # 424
+        self.H = self.game_image_widget.height() - 50  # 238
         self.framesTag = 0
         self.positionTag = -1
         self.detector = apriltag.Detector()
@@ -427,6 +436,7 @@ class ControlWidget(QWidget):
 
     def init_calibration(self):
         self.calibration_state = 0
+        self.capture.set(cv2.CAP_PROP_BRIGHTNESS, 0.59)
 
     def calibrate(self):
         # print "Calibrate"
@@ -511,13 +521,13 @@ class ControlWidget(QWidget):
                     print 'Can\'t save calibration'
                 self.composeImage(self.refImage, self.img1, self.img2, self.img3, self.img4)
                 self.refImage = cv2.cvtColor(self.refImage, cv2.COLOR_BGR2RGB)
+                self.capture.set(cv2.CAP_PROP_BRIGHTNESS, 0.79)
                 self.state = 1
         elif self.state == 1:
             # print "\tState 1"
             self.perspective_image = cv2.warpPerspective(self.raw_camera_image, self.homography, (self.W, self.H))
-            img = self.contrast_image(self.raw_camera_image)
-            gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-            cv2.imshow("gray", gray)
+            gray = cv2.cvtColor(self.raw_camera_image, cv2.COLOR_BGR2GRAY)
+            gray = self.contrast_image(gray)
             detections, dimg = self.detector.detect(gray, return_image=True)
             if len(detections) == 0:
                 print "no detection"
@@ -549,29 +559,31 @@ class ControlWidget(QWidget):
 
                         if self.framesTag > 20:
                             good = False
-                            caca = copy.deepcopy(self.refImage)
+                            result = copy.deepcopy(self.refImage)
+                            overlay = copy.deepcopy(self.refImage)
                             if self.positionTag == 1:
-                                cv2.rectangle(caca, (0, 0), (self.W / 2, self.H / 2), (0, 0, 255, 20), -1)
+                                cv2.rectangle(overlay, (0, 0), (self.W / 2, self.H / 2), (0, 0, 255), -1)
                             elif self.positionTag == 2:
-                                cv2.rectangle(caca, (self.W / 2, 0), (self.W, self.H / 2), (0, 0, 255, 20), -1)
+                                cv2.rectangle(overlay, (self.W / 2, 0), (self.W, self.H / 2), (0, 0, 255), -1)
                             elif self.positionTag == 3:
-                                cv2.rectangle(caca, (0, self.H / 2), (self.W / 2, self.H), (0, 0, 255, 20), -1)
+                                cv2.rectangle(overlay, (0, self.H / 2), (self.W / 2, self.H), (0, 0, 255), -1)
                             else:
-                                cv2.rectangle(caca, (self.W / 2, self.H / 2), (self.W, self.H), (0, 255, 0, 20), -1)
+                                cv2.rectangle(overlay, (self.W / 2, self.H / 2), (self.W, self.H), (0, 255, 0), -1)
                                 good = True
-
+                            opacity = 0.4
+                            cv2.addWeighted(overlay, opacity, self.refImage, 1 - opacity, 0, result)
                             if good:
                                 subprocess.Popen(["mplayer", "./resources/success.mp3"])
-                                cv2.circle(caca, (self.W / 2, self.H / 2), self.H / 5, (0, 255, 0), 10)
+                                cv2.circle(result, (self.W / 2, self.H / 2), self.H / 5, (0, 255, 0), 10)
 
                             else:
                                 subprocess.Popen(["mplayer", "./resources/error.mp3"])
-                                cv2.line(caca, ((self.W / 2) - 200, (self.H / 2) - 200),
+                                cv2.line(result, ((self.W / 2) - 200, (self.H / 2) - 200),
                                          ((self.W / 2) + 200, (self.H / 2) + 200), (0, 0, 255), 10)
-                                cv2.line(caca, ((self.W / 2) - 200, (self.H / 2) + 200),
+                                cv2.line(result, ((self.W / 2) - 200, (self.H / 2) + 200),
                                          ((self.W / 2) + 200, (self.H / 2) - 200), (0, 0, 255), 10)
 
-                                self.game_image_widget.set_opencv_image(caca)
+                                self.game_image_widget.set_opencv_image(result)
                             k = cv2.waitKey(1000)
 
                             self.framesTag = -20
@@ -591,10 +603,31 @@ class ControlWidget(QWidget):
             sys.exit(-1)
 
     def contrast_image(self, img):
-        cv2.imshow("img", img)
-        img = cv2.multiply(img, np.array([5.0]))  # mul_img = img*alpha
-        img[np.where((img == [255, 255, 255]).all(axis=2))] = [0, 0, 0]
-        final = cv2.add(img, 90)
+        # cv2.imshow("img", img)
+
+        # if there's more than 1 channel the img is converted to grayscale
+        if len(img.shape) > 2:
+            img = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+
+        # hist, bins = np.histogram(img.flatten(), 256, [0, 256])
+        # cdf = hist.cumsum()
+        # cdf_normalized = cdf * hist.max() / cdf.max()
+        # plt.plot(cdf_normalized, color='b')
+        # plt.hist(img.flatten(), 256, [0, 256], color='r')
+        # plt.xlim([0, 256])
+        # plt.legend(('cdf', 'histogram'), loc='upper left')
+        # plt.show()
+
+        # img = cv2.equalizeHist(img)
+        #
+        #
+        # final = cv2.multiply(img, np.array([1.9]))  # mul_img = img*alpha
+        clahe = cv2.createCLAHE(clipLimit=50.0, tileGridSize=(2, 2))
+        final = clahe.apply(img)
+        two = np.hstack((img, final))  # stacking images side-by-side
+        # img[np.where((img == [255, 255, 255]).all(axis=2))] = [0, 0, 0]
+        # final = cv2.add(img, 90)
+
         # # -----Converting image to LAB Color model-----------------------------------
         # lab = cv2.cvtColor(img, cv2.COLOR_BGR2LAB)
         # cv2.imshow("lab", lab)
@@ -616,7 +649,7 @@ class ControlWidget(QWidget):
         #
         # # -----Converting image from LAB Color model to RGB model--------------------
         # final = cv2.cvtColor(limg, cv2.COLOR_LAB2BGR)
-        cv2.imshow('final', final)
+        # cv2.imshow('final', two)
         return final
 
 
