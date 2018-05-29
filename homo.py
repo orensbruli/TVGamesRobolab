@@ -382,6 +382,8 @@ class ControlWidget(QWidget):
         self.positionTag = -1
         self.detector = apriltag.Detector()
 
+        self.refImage = np.array(np.zeros((self.H, self.W, 3)), dtype=np.uint8)
+        self.refImage[:] = (255, 255, 255)
         self.img1 = cv2.imread('resources/1.jpg')
         self.img2 = cv2.imread('resources/2.jpg')
         self.img3 = cv2.imread('resources/3.jpg')
@@ -395,8 +397,6 @@ class ControlWidget(QWidget):
         self.april_2 = cv2.resize(self.april_2, None, fx=0.2, fy=0.2, interpolation=cv2.INTER_CUBIC)
         self.april_3 = cv2.imread('resources/april_3.png')
         self.april_3 = cv2.resize(self.april_3, None, fx=0.2, fy=0.2, interpolation=cv2.INTER_CUBIC)
-        self.refImage = np.array(np.zeros((self.H, self.W, 3)), dtype=np.uint8)
-        self.refImage[:] = (255, 255, 255)
         self.perspective_image = None
         self.homography = None
         self.calibration_state = -1
@@ -412,6 +412,9 @@ class ControlWidget(QWidget):
         self.processing_timer.timeout.connect(self.game_loop)
         self.processing_timer.start(1000 / 24)
 
+        self.fgbg = cv2.createBackgroundSubtractorMOG2()
+
+
     def toHomogeneous(self, p):
         ret = np.resize(p, (p.shape[0] + 1, 1))
         ret[-1][0] = 1.
@@ -422,18 +425,33 @@ class ControlWidget(QWidget):
         self.camera_ret, self.raw_camera_image = self.capture.read()
         if self.camera_ret:
             self.raw_camera_image = cv2.cvtColor(self.raw_camera_image, cv2.COLOR_BGR2RGB)
-            self.camera_widget.set_opencv_image(self.raw_camera_image)
 
     def composeImage(self, bigImage, small1, small2, small3, small4):
         # cv2.rectangle(bigImage, (0,0), (self.W/2, self.H/2), (255,0,0), -1)
         # cv2.rectangle(bigImage, (self.W/2,0), (self.W, self.H/2), (0,255,0), -1)
         # cv2.rectangle(bigImage, (self.W/2, self.H/2), (self.W, self.H), (0,0,255), -1)
         # cv2.rectangle(bigImage, (0,self.H/2), (self.W/2, self.H), (255,0,255), -1)
-        self.copyRoi(bigImage, small1, 0, 0)
-        self.copyRoi(bigImage, small2, 0, self.W / 2)
-        self.copyRoi(bigImage, small3, self.H / 2, 0)
-        self.copyRoi(bigImage, small4, self.H / 2, self.W / 2)
+        q1_point = [bigImage.shape[0] / 4 - small1.shape[0] / 2, bigImage.shape[1] / 4 - small1.shape[1] / 2]
+        q2_point = [bigImage.shape[0] / 4 - small2.shape[0] / 2, (bigImage.shape[1] / 4) * 3 - small2.shape[1] / 2]
+        q3_point = [(bigImage.shape[0] / 4) * 3 - small3.shape[0] / 2, bigImage.shape[1] / 4 - small3.shape[1] / 2]
+        q4_point = [(bigImage.shape[0] / 4) * 3 - small4.shape[0] / 2,
+                    (bigImage.shape[1] / 4) * 3 - small4.shape[1] / 2]
+        self.copyRoi(bigImage, small1, q1_point[0], q1_point[1])
+        self.copyRoi(bigImage, small2, q2_point[0], q2_point[1])
+        self.copyRoi(bigImage, small3, q3_point[0], q3_point[1])
+        self.copyRoi(bigImage, small4, q4_point[0], q4_point[1])
 
+    # def composeImage2(self, bigImage, small1, small2, small3, small4):
+    #     cv2.imshow("compesed", bigImage)
+    #     white_quarter_image = np.array(np.zeros((bigImage.shape[0]/2, bigImage.shape[1]/2, 3)), dtype=np.uint8)
+    #     self.refImage[:] = (255, 255, 255)
+    #     cv2.imshow("white", white_quarter_image)
+    #     y_offset:y_offset + s_img.shape[0], x_offset:x_offset + s_img.shape[1]
+    #     small1.copyto(white_quarter_image(cv2.Rect(small1.shape[0]/4, small1.shape[1]/4, small_image.cols, small_image.rows)))
+    #     cv2.imshow("first_quarter", white_quarter_image)
+    #     k = cv2.waitKey(10000)
+
+    # initial state
     def init_calibration(self):
         self.calibration_state = 0
         self.capture.set(cv2.CAP_PROP_BRIGHTNESS, 0.59)
@@ -444,6 +462,7 @@ class ControlWidget(QWidget):
             return
 
         gray = cv2.cvtColor(self.raw_camera_image, cv2.COLOR_BGR2GRAY)
+
         if self.calibration_state == 0:
             print "Calibration state 0"
             self.copyRoi(self.refImage, self.april_0, 10, 10)
@@ -529,6 +548,7 @@ class ControlWidget(QWidget):
             gray = cv2.cvtColor(self.raw_camera_image, cv2.COLOR_BGR2GRAY)
             gray = self.contrast_image(gray)
             detections, dimg = self.detector.detect(gray, return_image=True)
+            self.background_subtractor()
             if len(detections) == 0:
                 print "no detection"
                 self.framesTag -= 1
@@ -562,28 +582,32 @@ class ControlWidget(QWidget):
                             result = copy.deepcopy(self.refImage)
                             overlay = copy.deepcopy(self.refImage)
                             if self.positionTag == 1:
-                                cv2.rectangle(overlay, (0, 0), (self.W / 2, self.H / 2), (0, 0, 255), -1)
+                                cv2.rectangle(overlay, (0, 0), (self.W / 2, self.H / 2), (255, 0, 0), -1)
                             elif self.positionTag == 2:
-                                cv2.rectangle(overlay, (self.W / 2, 0), (self.W, self.H / 2), (0, 0, 255), -1)
+                                cv2.rectangle(overlay, (self.W / 2, 0), (self.W, self.H / 2), (255, 0, 0), -1)
                             elif self.positionTag == 3:
-                                cv2.rectangle(overlay, (0, self.H / 2), (self.W / 2, self.H), (0, 0, 255), -1)
+                                cv2.rectangle(overlay, (0, self.H / 2), (self.W / 2, self.H), (255, 0, 0), -1)
                             else:
                                 cv2.rectangle(overlay, (self.W / 2, self.H / 2), (self.W, self.H), (0, 255, 0), -1)
                                 good = True
-                            opacity = 0.4
+
+                            opacity = 0.8
                             cv2.addWeighted(overlay, opacity, self.refImage, 1 - opacity, 0, result)
+                            overlay = copy.deepcopy(self.refImage)
                             if good:
                                 subprocess.Popen(["mplayer", "./resources/success.mp3"])
-                                cv2.circle(result, (self.W / 2, self.H / 2), self.H / 5, (0, 255, 0), 10)
+                                cv2.circle(overlay, (self.W / 2, self.H / 2), self.H / 5, (0, 255, 0), 10)
 
                             else:
                                 subprocess.Popen(["mplayer", "./resources/error.mp3"])
-                                cv2.line(result, ((self.W / 2) - 200, (self.H / 2) - 200),
-                                         ((self.W / 2) + 200, (self.H / 2) + 200), (0, 0, 255), 10)
-                                cv2.line(result, ((self.W / 2) - 200, (self.H / 2) + 200),
-                                         ((self.W / 2) + 200, (self.H / 2) - 200), (0, 0, 255), 10)
+                                cv2.line(overlay, ((self.W / 2) - 200, (self.H / 2) - 200),
+                                         ((self.W / 2) + 200, (self.H / 2) + 200), (255, 0, 0), 10)
+                                cv2.line(overlay, ((self.W / 2) - 200, (self.H / 2) + 200),
+                                         ((self.W / 2) + 200, (self.H / 2) - 200), (255, 0, 0), 10)
 
-                                self.game_image_widget.set_opencv_image(result)
+                            opacity = 0.7
+                            cv2.addWeighted(overlay, opacity, result, 1 - opacity, 0, result)
+                            self.game_image_widget.set_opencv_image(result)
                             k = cv2.waitKey(1000)
 
                             self.framesTag = -20
@@ -592,8 +616,12 @@ class ControlWidget(QWidget):
             print '\tWTF'
 
         # cv2.imshow("image", self.refImage)
-
         self.game_image_widget.set_opencv_image(self.refImage)
+
+        if self.raw_camera_image is not None and self.raw_camera_image.shape[1] > 1000:
+            self.raw_camera_image = cv2.resize(self.raw_camera_image, (0, 0), fx=0.5, fy=0.5)
+        self.camera_widget.set_opencv_image(self.raw_camera_image)
+
         if self.perspective_image is not None and self.perspective_image.shape[1] > 1000:
             self.perspective_image = cv2.resize(self.perspective_image, (0, 0), fx=0.5, fy=0.5)
         self.perspective_widget.set_opencv_image(self.perspective_image)
@@ -651,6 +679,11 @@ class ControlWidget(QWidget):
         # final = cv2.cvtColor(limg, cv2.COLOR_LAB2BGR)
         # cv2.imshow('final', two)
         return final
+
+    def background_subtractor(self):
+        fgmask = self.fgbg.apply(self.raw_camera_image)
+        cv2.imshow('frame', fgmask)
+
 
 
 class QImageWidget(QWidget):
