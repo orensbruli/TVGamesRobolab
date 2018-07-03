@@ -1,7 +1,9 @@
+import json
 import os
 import sys
 from PyQt4 import QtGui
 from math import floor, sqrt
+from pprint import pprint
 from random import shuffle, randint
 
 import cv2
@@ -141,17 +143,42 @@ class ChooseImageGame(QWidget):
         self.restart_game_timer = QTimer()
         self.restart_game_timer.setSingleShot(True)
         self.restart_game_timer.timeout.connect(self.restart_image_tile)
+        self.image_bank = {}
 
-    def generate_image_tile_widget(self, images_path_list):
+    def generate_image_tile_widget_from_paths(self, images_path_list):
         if images_path_list is not None:
             image_count = len(images_path_list)
             rows = int(floor(sqrt(image_count)))
             # columns = int(image_count / rows)
             shuffle(images_path_list)
             for n_image, image_path in enumerate(images_path_list):
+                assert os.path.exists(image_path), "%s image path doesn't exist" % image_path
                 row = n_image % rows
                 column = int(n_image / rows)
                 label = ClickableImage(image_path)
+                label.clicked.connect(self.handleLabelClicked)
+                self.main_layout.addWidget(label, row, column)
+                if row < len(self.image_grid):
+                    self.image_grid[row].append({"name": label.name, "path": label.path, "widget": label})
+                else:
+                    col_0 = [{"name": label.name, "path": label.path, "widget": label}]
+                    self.image_grid.append(col_0)
+                self.image_grid_by_widget[label] = (row, column)
+                self.image_grid_by_name[label.name] = (row, column)
+
+    def genera_image_tile_widget(self):
+        if self.image_bank is not None or len(self.image_bank)<=0:
+            image_count = len(self.image_bank)
+            rows = int(floor(sqrt(image_count)))
+            # columns = int(image_count / rows)
+            image_ids = self.image_bank.keys()
+            shuffle(image_ids)
+            for n_image, image_id in enumerate(image_ids):
+                row = n_image % rows
+                column = int(n_image / rows)
+                image = self.image_bank[image_id]
+                assert os.path.exists(image["path"]), "%s image path doesn't exist" % image["path"]
+                label = ClickableImage(image["path"],image["name"])
                 label.clicked.connect(self.handleLabelClicked)
                 self.main_layout.addWidget(label, row, column)
                 if row < len(self.image_grid):
@@ -166,7 +193,7 @@ class ChooseImageGame(QWidget):
         self.image_grid = []
         self.image_grid_by_name = {}
         self.image_grid_by_widget = {}
-        self.generate_image_tile_widget(
+        self.generate_image_tile_widget_from_paths(
             [os.path.join(CURRENT_PATH, '../resources/1.jpg'),
              os.path.join(CURRENT_PATH, '../resources/2.jpg'),
              os.path.join(CURRENT_PATH, '../resources/3.jpg'),
@@ -209,10 +236,15 @@ class ChooseImageGame(QWidget):
         mixed = blend_transparent(original_image, lose_image)
         widget.set_temp_opencv_image(mixed, self.WIN_LOSE_DELAY_TIME)
 
+    def load_images_json_file(self):
+        with open(os.path.join(CURRENT_PATH, 'resources/images.json')) as f:
+            self.image_bank = json.load(f)
+
 
 def main():
     app = QApplication([])
     game = ChooseImageGame()
+    game.load_images_json_file()
     game.restart_image_tile()
     game.show()
     sys.exit(app.exec_())
