@@ -8,7 +8,7 @@ from random import randint, shuffle
 
 from OpenGL import GL
 # Create a class for our main window
-from PyQt4.QtCore import Qt, QTimer, QTimeLine, QPointF
+from PyQt4.QtCore import Qt, QTimer, QTimeLine, QPointF, pyqtSignal, QObject
 from PyQt4.QtGui import QApplication, QGraphicsItemAnimation, QGraphicsTextItem, QFont, QGraphicsScene, QHBoxLayout, \
     QWidget, QGraphicsView, QPixmap, QGraphicsPixmapItem, QBrush, QGraphicsItem, QStyleOptionGraphicsItem, \
     QGraphicsRectItem, QStyle
@@ -25,7 +25,18 @@ from PyQt4 import QtOpenGL
 CURRENT_PATH = os.path.dirname(__file__)
 
 
+class MovedSignal(QObject):
+    moved = pyqtSignal(QPointF)
+
+    def __init__(self, parent=None):
+        self.parent = parent
+        super(MovedSignal, self).__init__()
+
+    def get_parent(self):
+        return self.parent
+
 class DraggableItem(QGraphicsPixmapItem):
+
     def __init__(self, image_path, parent=None):
         super(DraggableItem, self).__init__(parent)
         self.pixmap = QPixmap(image_path)
@@ -34,8 +45,11 @@ class DraggableItem(QGraphicsPixmapItem):
         self.setFlag(QGraphicsItem.ItemIsSelectable)
         self.setFlag(QGraphicsItem.ItemIsMovable)
         self.setFlag(QGraphicsItem.ItemSendsGeometryChanges)
-        self.moved = False
+        self.moved_flag = False
         self.old_pos = None
+        self.moved_signal = MovedSignal(self)
+
+
     #
     # def itemChange(self, change, value):
     #     if change == QGraphicsItem.ItemPositionChange:
@@ -54,12 +68,15 @@ class DraggableItem(QGraphicsPixmapItem):
         self.old_pos = event.scenePos()
         super(DraggableItem, self).mousePressEvent(event)
 
+
     def mouseReleaseEvent(self, event):
         if self.old_pos:
             point = event.scenePos() - self.old_pos
             if point.manhattanLength() > 3:
-                self.moved = True
+                self.moved_flag = True
+                self.moved_signal.moved.emit(event.scenePos())
         super(DraggableItem, self).mouseReleaseEvent(event)
+
 
 class TakeDragGame(QWidget):
     def __init__(self, parent=None):
@@ -93,86 +110,41 @@ class TakeDragGame(QWidget):
 
     def create_and_add_images(self):
         self.load_images_json_file()
-        self.add_background_from_image()
         self.add_background_to_image()
+        self.add_background_from_image()
         if self.image_bank is not None:
             for image_id in self.image_bank.keys():
                 if "clothes" in self.image_bank[image_id]["categories"]:
                     image_path = self.image_bank[image_id]["path"]
-                    new_image = DraggableItem(image_path)
+                    new_image = DraggableItem(image_path, self.background_from_image)
+                    new_image.moved_signal.moved.connect(self.item_moved)
                     self.image_bank[image_id]["widget"] = new_image
-                    newpos_x = self.background_from_image.pos().x() + self.background_from_image.boundingRect().width() / 2 - new_image.boundingRect().width() / 2
-                    newpos_y = self.background_from_image.pos().y() + self.background_from_image.boundingRect().height() / 2 - new_image.boundingRect().height() / 2
+                    newpos_x = self.background_from_image.boundingRect().width() / 2 - new_image.boundingRect().width() / 2
+                    newpos_y = self.background_from_image.boundingRect().height() / 2 - new_image.boundingRect().height() / 2
                     new_image.setPos(newpos_x, newpos_y)
-                    self.scene.addItem(new_image)
+                    # self.scene.addItem(new_image)
+                    new_image.setZValue(30)
 
-    def populate(self):
-        font = QFont('White Rabbit')
-        font.setPointSize(120)
-        self.dot1.setFont(font)
-        self.dot1.setPos(140, 0)
-        self.scene.addItem(self.dot1)
-        self.dot2.setFont(font)
-        self.dot2.setPos(410, 0)
-        self.scene.addItem(self.dot2)
+    def item_moved(self, pos):
+        widget = self.sender().get_parent()
+        print widget.zValue()
+        print self.background_from_image.zValue()
+        print self.background_to_image.zValue()
+        item_br = widget.sceneBoundingRect()
+        if self.background_from_image.sceneBoundingRect().contains(item_br):
+            widget.setParentItem(self.background_from_image)
+            newpos_x = self.background_from_image.boundingRect().width() / 2 - widget.boundingRect().width() / 2
+            newpos_y = self.background_from_image.boundingRect().height() / 2 - widget.boundingRect().height() / 2
+            # self.background_to_image.stackBefore(self.background_from_image)
+            widget.setPos(newpos_x, newpos_y)
+        elif self.background_to_image.sceneBoundingRect().contains(item_br):
+            widget.setParentItem(self.background_to_image)
+            newpos_x = self.background_to_image.boundingRect().width() / 2 - widget.boundingRect().width() / 2
+            newpos_y = self.background_to_image.boundingRect().height() / 2 - widget.boundingRect().height() / 2
+            # self.background_from_image.stackBefore(self.background_to_image)
+            widget.setPos(newpos_x, newpos_y)
 
-        for i in range(60):
-            l = QGraphicsTextItem(str(i % 10))
-            l.setFont(font)
-            l.setZValue(-100)
-            l.setPos(randint(0, 500), randint(150, 300))
-            l.setOpacity(.3)
-            # l.setDefaultTextColor(QColor('lightgray'))
-            self.scene.addItem(l)
-            self.digits.append(l)
 
-    def animate(self):
-        self.animations = range(0, 60)
-
-        def animate_to(t, item, x, y, angle):
-            animation = QGraphicsItemAnimation()
-            timeline = QTimeLine(1000)
-            timeline.setFrameRange(0, 100)
-            animation.setPosAt(t, QPointF(x, y))
-            animation.setRotationAt(t, angle)
-            animation.setItem(item)
-            animation.setTimeLine(timeline)
-            return animation
-
-        offsets = range(6)
-        shuffle(offsets)
-
-        # Some, animate with purpose
-        h1, h2 = map(int, '%02d' % time.localtime().tm_hour)
-        h1 += offsets[0] * 10
-        h2 += offsets[1] * 10
-        self.animations[h1] = animate_to(0.2, self.digits[h1], -40, 0, 0)
-        self.animations[h2] = animate_to(0.2, self.digits[h2], 50, 0, 0)
-
-        m1, m2 = map(int, '%02d' % time.localtime().tm_min)
-        m1 += offsets[2] * 10
-        m2 += offsets[3] * 10
-        self.animations[m1] = animate_to(0.2, self.digits[m1], 230, 0, 0)
-        self.animations[m2] = animate_to(0.2, self.digits[m2], 320, 0, 0)
-
-        s1, s2 = map(int, '%02d' % time.localtime().tm_sec)
-        s1 += offsets[4] * 10
-        s2 += offsets[5] * 10
-        self.animations[s1] = animate_to(0.2, self.digits[s1], 500, 0, 0)
-        self.animations[s2] = animate_to(0.2, self.digits[s2], 590, 0, 0)
-
-        # Random animations
-        for i in range(60):
-            l = self.digits[i]
-            if i in [h1, h2, m1, m2, s1, s2]:
-                l.setOpacity(1)
-                continue
-            l.setOpacity(.3)
-            self.animations[i] = animate_to(1, l, randint(0, 500), randint(0, 300), randint(0, 0))
-
-        [animation.timeLine().start() for animation in self.animations]
-
-        self.animator.start(1000)
 
     def load_images_json_file(self):
         with open(os.path.join(CURRENT_PATH, './resources/images.json')) as f:
@@ -184,6 +156,7 @@ class TakeDragGame(QWidget):
             background_from_pixmap = QPixmap(self.image_bank["Background from"]["path"])
             self.background_from_image = QGraphicsPixmapItem(background_from_pixmap)
             self.scene.addItem(self.background_from_image)
+            self.background_from_image.setZValue(2)
 
     def add_background_to_image(self, ):
         assert self.image_bank is not None, "Images need to be loaded before calling this method (try load_images_json_file)"
@@ -191,11 +164,11 @@ class TakeDragGame(QWidget):
             background_to_pixmap = QPixmap(self.image_bank["Background to"]["path"])
             self.background_to_image = QGraphicsPixmapItem(background_to_pixmap)
             self.scene.addItem(self.background_to_image)
-
+            self.background_to_image.setZValue(2)
 
     def resizeEvent(self, event):
         view_size = self.view.size()
-        new_background_height = (1.5/4.)*view_size.height()
+        new_background_height = (1.5 / 4.) * view_size.height()
         background_to_pixmap = QPixmap(self.image_bank["Background to"]["path"])
         background_to_pixmap = background_to_pixmap.scaled(new_background_height, new_background_height,
                                                            Qt.KeepAspectRatio)
@@ -221,7 +194,7 @@ class TakeDragGame(QWidget):
         else:
             self.background_from_image.setPixmap(background_from_pixmap)
 
-        sugested_x_position = int(view_size.width() / 5.- background_from_pixmap.size().height() / 2)
+        sugested_x_position = int(view_size.width() / 5. - background_from_pixmap.size().height() / 2)
         if sugested_x_position < 0:
             sugested_x_position = 0
         sugested_y_position = int(view_size.height() / 2. - background_from_pixmap.size().height() / 2)
@@ -237,16 +210,15 @@ class TakeDragGame(QWidget):
                     widget = self.image_bank[image_id]["widget"]
                     pixmap = widget.pixmap
                     pixmap = pixmap.scaled(new_widget_height, new_widget_height,
-                                                                           Qt.KeepAspectRatio)
+                                           Qt.KeepAspectRatio)
                     widget.setPixmap(pixmap)
-                    print widget.moved
-                    if not widget.moved:
-                        newpos_x = self.background_from_image.pos().x() + self.background_from_image.boundingRect().width() / 2 - widget.boundingRect().width() / 2
-                        newpos_y = self.background_from_image.pos().y() + self.background_from_image.boundingRect().height() / 2 - widget.boundingRect().height() / 2
+                    print widget.moved_flag
+                    if not widget.moved_flag:
+                        newpos_x = self.background_from_image.boundingRect().width() / 2 - widget.boundingRect().width() / 2
+                        newpos_y = self.background_from_image.boundingRect().height() / 2 - widget.boundingRect().height() / 2
                         widget.setPos(newpos_x, newpos_y)
 
         super(TakeDragGame, self).resizeEvent(event)
-
 
 
 def main():
