@@ -136,8 +136,8 @@ class ChooseImageGame(QWidget):
         self.image_grid = []
         self.image_grid_by_name = {}
         self.image_grid_by_widget = {}
-        self.win_sign = os.path.join(CURRENT_PATH, '../resources/ok_sign.png')
-        self.lose_sign = os.path.join(CURRENT_PATH, '../resources/wrong_sign.png')
+        self.win_sign_path = os.path.join(CURRENT_PATH, 'resources/ok_sign.png')
+        self.lose_sign_path = os.path.join(CURRENT_PATH, 'resources/wrong_sign.png')
         self.WIN_LOSE_DELAY_TIME = 2 * 1000
         self.current_winner_image = None
         self.restart_game_timer = QTimer()
@@ -194,10 +194,10 @@ class ChooseImageGame(QWidget):
         self.image_grid_by_name = {}
         self.image_grid_by_widget = {}
         self.generate_image_tile_widget_from_paths(
-            [os.path.join(CURRENT_PATH, '../resources/1.jpg'),
-             os.path.join(CURRENT_PATH, '../resources/2.jpg'),
-             os.path.join(CURRENT_PATH, '../resources/3.jpg'),
-             os.path.join(CURRENT_PATH, '../resources/4.jpg')]
+            [os.path.join(CURRENT_PATH, 'resources/1.jpg'),
+             os.path.join(CURRENT_PATH, 'resources/2.jpg'),
+             os.path.join(CURRENT_PATH, 'resources/3.jpg'),
+             os.path.join(CURRENT_PATH, 'resources/4.jpg')]
         )
         self.set_winner_image_by_name(str(randint(1, 4)))
 
@@ -219,8 +219,9 @@ class ChooseImageGame(QWidget):
             self.overlay_image_lose(clicked_widget)
 
     def overlay_image_win(self, widget):
+        assert os.path.exists(self.win_sign_path), "Lose sign file not found at %s" % self.win_sign_path
         original_image = widget.to_opencv_image()
-        win_imag = cv2.imread(self.win_sign, cv2.IMREAD_UNCHANGED)
+        win_imag = cv2.imread(self.win_sign_path, cv2.IMREAD_UNCHANGED)
         min_side = min([original_image.shape[0], original_image.shape[1]])
         proportion = float(min_side) / win_imag.shape[0]
         win_imag = cv2.resize(win_imag, None, fx=proportion, fy=proportion, interpolation=cv2.INTER_CUBIC)
@@ -228,8 +229,9 @@ class ChooseImageGame(QWidget):
         widget.set_temp_opencv_image(mixed, self.WIN_LOSE_DELAY_TIME)
 
     def overlay_image_lose(self, widget):
+        assert os.path.exists(self.lose_sign_path), "Lose sign file not found at %s" % self.lose_sign_path
         original_image = widget.to_opencv_image()
-        lose_image = cv2.imread(self.lose_sign, cv2.IMREAD_UNCHANGED)
+        lose_image = cv2.imread(self.lose_sign_path, cv2.IMREAD_UNCHANGED)
         min_side = min([original_image.shape[0], original_image.shape[1]])
         proportion = float(min_side) / lose_image.shape[0]
         lose_image = cv2.resize(lose_image, None, fx=proportion, fy=proportion, interpolation=cv2.INTER_CUBIC)

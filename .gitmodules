@@ -1,3 +1,6 @@
 [submodule "libs/Hand_Detection"]
 	path = libs/Hand_Detection
 	url = https://github.com/orensbruli/Hand_Detection.git
+[submodule "libs/HandDetection"]
+	path = libs/HandDetection
+	url = https://github.com/orensbruli/HandDetection.git
